@@ -3,7 +3,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 from itertools import count
-from PIL import Image
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -14,6 +13,8 @@ matplotlib.use('TkAgg')
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Initiaiton avec GYM et CartPole-v1
+# #########################################
 # env = gym.make('CartPole-v1')
 # list_reward = {}
 # nb_action_episodes = {}
@@ -38,24 +39,28 @@ import matplotlib.pyplot as plt
 #plt.scatter(list(list_reward.keys()),list(list_reward.values()))
 #plt.show()
 
-
+# Deuxiemme maniere pour tester l'apprentissage.
+########################################################
+# Compter le nombre d'action qui fait pour chaque épisode
+#########################################################
 #plt.scatter(list(nb_action_episodes.keys()),list(nb_action_episodes.values()))
 #plt.show()
 
 #2.1 Experience replay:
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
 
-    def __init__(self, action_size, buffer_size, batch_size, seed):
+    def __init__(self,buffer_size, batch_size, seed):
         """Initialize a ReplayBuffer object.
         Params
         ======
-            action_size (int): dimension of each action
             buffer_size (int): maximum size of buffer
             batch_size (int): size of each training batch
             seed (int): random seed
         """
-        self.action_size = action_size
         self.memory = deque(maxlen=buffer_size)  
         self.batch_size = batch_size
         self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
@@ -75,15 +80,15 @@ class ReplayBuffer:
         rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
         next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
         dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
-  
+
         return (states, actions, rewards, next_states, dones)
 
     def __len__(self):
         """Return the current size of internal memory."""
         return len(self.memory)
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-test_memory = ReplayBuffer(2,20,10,0)
 
+######################################################################################
+# test_memory = ReplayBuffer(20,10,0)
 # env = gym.make('CartPole-v1')
 # env = gym.wrappers.Monitor(env, "recording",force=True)
 # list_reward = {}
@@ -113,14 +118,16 @@ test_memory = ReplayBuffer(2,20,10,0)
 # print(len(resultats))
 # print(type(resultats[:][0]))
 # print("end test")
+######################################################################################
+######################################################################################
 # PARTIE 2.2 
 # Étape 07 : Résseau de neurones pour l'environement Carte Pole v1 
 # Couche d'entré  : Taille est égale au composante d'un état : 4
 # Couche de sorte : Nombre d'action possible (2)
 # Archetecture des couches caché : 4 : 32 : 2 
-# Activation : 
-
+# Activation :  Leaky relu 
 # Réponse 07: Archtecture proposé 
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
 
@@ -157,7 +164,7 @@ def select_action(model, state):
     action = np.argmax(values.cpu().numpy())
 
     return action
-
+######################################################################
 ## TEST DES DERNIERS FONCTIONS :
 # test_memory = ReplayMemory(20)
 # env = gym.make('CartPole-v1')
@@ -183,18 +190,24 @@ def select_action(model, state):
 #         if done:
 #             print("Episode finished after {} timesteps".format(t + 1))
 #             break
+#######################################################################
 
+# A partir de maintenant on va essayer de rassembler tous les bouts de code dans une classe d'agent #######
+#############################################################################
 ## Partie 2.3 Exploration
 class AgentExploration:
-    def __init__(self,gamma,epsilon = 0.99,beta = 0.99, ):
+    
+    
+    def __init__(self,gamma,epsilon = 0.99,beta = 0.99,batch_size=5 ):
         self.gamma = gamma
         self.epsilon=epsilon
         self.memory = None
         self.beta = beta
         self.env= gym.make('CartPole-v1')
         self.model = QNetwork(self.env.action_space.n,len(self.env.reset()),8)
-        self.memory=ReplayBuffer(2,5,10,0)
         self.batch_size = 5
+        self.memory=ReplayBuffer(100,self.batch_size,0)
+        
 
     def choose_action(self,model,env,state):
         state = torch.Tensor(state).to(device)
@@ -218,6 +231,9 @@ class AgentExploration:
         observationN = env.reset()
         print("ACTION SPACE ",env.action_space.n)
         model = QNetwork(env.action_space.n,len(observationN),8)
+
+        list_reward = {}
+        cumul_reward = 0
         for i_episode in range(20):
             observationN = env.reset()
             cumul_reward = 0
@@ -229,11 +245,9 @@ class AgentExploration:
                 print("ACTION : ",action)
                 observationF, reward, done, info = env.step(action)
                 
-                
-
                 cumul_reward += reward
                 nb_actions+=1
-                
+                list_reward[t] = cumul_reward
                 self.memory.add(observationN,action,reward,observationF,done)
                 
                 #self.memory.push(observationN,action,observationF,reward,done)
@@ -245,22 +259,19 @@ class AgentExploration:
                     print("Episode finished after {} timesteps".format(t + 1))
                     break
 
+        plt.scatter(list(list_reward.keys()),list(list_reward.values()))
+        plt.show()
+
     
     def train(self,batch_size, optim, memory ):
         # Juste avec un seul model 
         resultats = self.memory.sample()
-        print(type(resultats))
-        q_values = self.model(resultats.state)
-        next_states = torch.Tensor(next_states).to(device)
-        next_q_values = self.model(next_states)
-        
-
-        q_value = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-
-        next_q_value = torch.max(next_q_values, 1)
-        
-        expected_q_value = rewards + self.gamma * next_q_value * (1 - is_done)
-
+        # On calcule les Q valeurs estimé par le premier réseau de neurones
+        q_values = self.model(resultats[0])
+        next_q_values = self.model(resultats[3])
+        q_value = q_values.gather(1, resultats[1])
+        next_q_value = torch.max(next_q_values, 1)[0].detach()
+        expected_q_value = resultats[2] + self.gamma * next_q_value * (1 - resultats[4])
         loss = nn.MSELoss()
         loss=loss(q_value ,expected_q_value)
         optim.zero_grad()
