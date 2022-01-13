@@ -75,11 +75,17 @@ class ReplayBuffer:
         """Randomly sample a batch of experiences from memory."""
         experiences = random.sample(self.memory, k=self.batch_size)
 
-        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
-        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(device)
-        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
-        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
-        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
+        states = torch.as_tensor(np.asarray([e.state for e in experiences if e is not None]), dtype=torch.float32)
+        actions = torch.as_tensor(np.asarray([e.action for e in experiences if e is not None]), dtype=torch.int64).unsqueeze(-1)
+        rewards = torch.as_tensor(np.asarray([e.reward for e in experiences if e is not None]),dtype=torch.float32).unsqueeze(-1)
+        next_states = torch.as_tensor(np.asarray([e.next_state for e in experiences if e is not None]),dtype=torch.float32)
+        dones = torch.as_tensor(np.asarray([e.done for e in experiences if e is not None]),dtype=torch.float32).unsqueeze(-1)
+
+        # states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
+        # actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(device)
+        # rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
+        # next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
+        # dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
 
         return (states, actions, rewards, next_states, dones)
 
@@ -191,6 +197,25 @@ def select_action(model, state):
 #             print("Episode finished after {} timesteps".format(t + 1))
 #             break
 #######################################################################
+def plot_durations(episode_durations):
+    plt.figure(2)
+    plt.clf()
+    durations_t = torch.tensor(episode_durations, dtype=torch.float)
+    plt.title('Training...')
+    plt.xlabel('Episode')
+    plt.ylabel('Duration')
+    plt.plot(durations_t.numpy())
+    # Take 100 episode averages and plot them too
+    if len(durations_t) >= 100:
+        means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
+        means = torch.cat((torch.zeros(99), means))
+        plt.plot(means.numpy())
+
+    plt.pause(0.001)  # pause a bit so that plots are updated
+#    if is_ipython:
+#        display.clear_output(wait=True)
+#        display.display(plt.gcf())
+
 
 # A partir de maintenant on va essayer de rassembler tous les bouts de code dans une classe d'agent #######
 #############################################################################
@@ -198,14 +223,14 @@ def select_action(model, state):
 class AgentExploration:
     
     
-    def __init__(self,gamma,epsilon = 0.99,beta = 0.99,batch_size=5 ):
+    def __init__(self,gamma,epsilon = 0.99,beta = 0.99,batch_size=20 ):
         self.gamma = gamma
         self.epsilon=epsilon
         self.memory = None
         self.beta = beta
         self.env= gym.make('CartPole-v1')
         self.model = QNetwork(self.env.action_space.n,len(self.env.reset()),8)
-        self.batch_size = 5
+        self.batch_size = batch_size
         self.memory=ReplayBuffer(100,self.batch_size,0)
         
 
@@ -219,22 +244,24 @@ class AgentExploration:
             action = np.random.randint(0, env.action_space.n)
         else:
             action = np.argmax(values.cpu().numpy())
+            print("action from selection action ", action)
         return action
 
     def update_epsilon(self):
         self.epsilon=self.epsilon*self.beta
     
     def run(self):
+       
         optim = torch.optim.Adam(self.model.parameters(), lr=0.001)
         env = gym.make('CartPole-v1')
         #env = gym.wrappers.Monitor(env, "recording",force=True)
         observationN = env.reset()
         print("ACTION SPACE ",env.action_space.n)
         model = QNetwork(env.action_space.n,len(observationN),8)
-
+        episode_durations = []
         list_reward = {}
         cumul_reward = 0
-        for i_episode in range(20):
+        for i_episode in range(100):
             observationN = env.reset()
             cumul_reward = 0
             nb_actions = 0
@@ -256,7 +283,9 @@ class AgentExploration:
                     self.train(self.batch_size,optim,self.memory)
                 self.update_epsilon()
                 if done:
+                    plot_durations(episode_durations)
                     print("Episode finished after {} timesteps".format(t + 1))
+                    episode_durations.append(t + 1)
                     break
 
         plt.scatter(list(list_reward.keys()),list(list_reward.values()))
@@ -267,13 +296,24 @@ class AgentExploration:
         # Juste avec un seul model 
         resultats = self.memory.sample()
         # On calcule les Q valeurs estimé par le premier réseau de neurones
+        
+        #target q values : 
+        #TODO
+        target_q_values = self.model(resultats[3])
+        
+        #MAX TARGET Q VALUE 
+        max_target_q_values = target_q_values.max(dim=1, keepdim=True)[0]
+
+        targets = resultats[2] + self.gamma * max_target_q_values * (1 - resultats[4])
+
+
         q_values = self.model(resultats[0])
-        next_q_values = self.model(resultats[3])
-        q_value = q_values.gather(1, resultats[1])
-        next_q_value = torch.max(next_q_values, 1)[0].detach()
-        expected_q_value = resultats[2] + self.gamma * next_q_value * (1 - resultats[4])
+        
+        action_q_values = torch.gather(input=q_values, dim=1, index=resultats[1])
+
         loss = nn.MSELoss()
-        loss=loss(q_value ,expected_q_value)
+        loss=loss(action_q_values ,targets)
+        
         optim.zero_grad()
         loss.backward()
         optim.step()
