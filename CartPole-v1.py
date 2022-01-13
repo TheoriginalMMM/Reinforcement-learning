@@ -13,6 +13,25 @@ matplotlib.use('TkAgg')
 import numpy as np
 import matplotlib.pyplot as plt
 
+
+#PARAMETERS 
+# entre 0 et 1 
+GAMMA = 0.99
+BATCH_SIZE = 32
+BUFFER_SIZE = 1000
+EPSILON_START = 1.0
+EPSILON_END = 0.02
+EPSILON_DECAY = 10
+# Quelle méthode de MAJ des paramtres du résseaux de neurones target
+# Chaque étape _ True 
+TARGET_UPDATE_EACH_STEP = False
+# ALpha utilisé pour la mAJ des paramtres
+ALPHA = 0.01
+# A quelle fréqeuence modifié les paramtres
+TARGET_UPDATE_FREQ = 500
+
+
+
 # Initiaiton avec GYM et CartPole-v1
 # #########################################
 # env = gym.make('CartPole-v1')
@@ -141,12 +160,12 @@ print(device)
 The Q-Network has as input a state s and outputs the state-action values q(s,a_1), ..., q(s,a_n) for all n actions.
 """
 class QNetwork(nn.Module):
-    def __init__(self, action_dim, state_dim, hidden_dim):
+    def __init__(self, action_dim, state_dim):
         super(QNetwork, self).__init__()
 
-        self.fc_1 = nn.Linear(state_dim, hidden_dim)
-        self.fc_2 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc_3 = nn.Linear(hidden_dim, action_dim)
+        self.fc_1 = nn.Linear(state_dim, 128)
+        self.fc_2 = nn.Linear(128, 64)
+        self.fc_3 = nn.Linear(64, action_dim)
 
     def forward(self, inp):
 
@@ -226,51 +245,59 @@ class AgentExploration:
     def __init__(self,gamma,epsilon = 0.99,beta = 0.99,batch_size=20 ):
         self.gamma = gamma
         self.epsilon=epsilon
-        self.memory = None
         self.beta = beta
         self.env= gym.make('CartPole-v1')
-        self.model = QNetwork(self.env.action_space.n,len(self.env.reset()),8)
-        self.batch_size = batch_size
-        self.memory=ReplayBuffer(100,self.batch_size,0)
+
+
+        self.online_network = QNetwork(self.env.action_space.n,len(self.env.reset()))
+        self.target_network = QNetwork(self.env.action_space.n,len(self.env.reset()))
+        self.optim = torch.optim.Adam(self.online_network.parameters(), lr=0.001)
+        # Initialisationa avec les même paramtres
+        self.target_network.load_state_dict(self.online_network.state_dict())
+
+        self.batch_size = BATCH_SIZE
+        self.memory=ReplayBuffer(BUFFER_SIZE,self.batch_size,1)
+        self.compteur_train= 0
         
 
-    def choose_action(self,model,env,state):
+    def choose_action(self,state):
         state = torch.Tensor(state).to(device)
         with torch.no_grad():
-            values = model(state)
+            values = self.online_network(state)
 
     # select a random action wih probability eps
         if random.random() <= self.epsilon:
-            action = np.random.randint(0, env.action_space.n)
+            action = np.random.randint(0, self.env.action_space.n)
         else:
             action = np.argmax(values.cpu().numpy())
-            print("action from selection action ", action)
         return action
 
     def update_epsilon(self):
         self.epsilon=self.epsilon*self.beta
+
+    def update_target_network_weights_each_step(self,):
+        print("updating target netowrk paramaters ")
+        for param_tensor in self.online_network.state_dict():
+            self.target_network.state_dict()[param_tensor] = (1-ALPHA)*self.target_network.state_dict()[param_tensor]+self.online_network.state_dict()[param_tensor]*ALPHA
+
     
     def run(self):
-       
-        optim = torch.optim.Adam(self.model.parameters(), lr=0.001)
-        env = gym.make('CartPole-v1')
+        
         #env = gym.wrappers.Monitor(env, "recording",force=True)
-        observationN = env.reset()
-        print("ACTION SPACE ",env.action_space.n)
-        model = QNetwork(env.action_space.n,len(observationN),8)
+        observationN = self.env.reset()
         episode_durations = []
         list_reward = {}
         cumul_reward = 0
         for i_episode in range(100):
-            observationN = env.reset()
+            observationN = self.env.reset()
             cumul_reward = 0
             nb_actions = 0
             for t in range(100):
-                env.render()      
+                self.env.render()      
                 # Choix de l'action
-                action = self.choose_action(model,env,observationN)
+                action = self.choose_action(observationN)
                 print("ACTION : ",action)
-                observationF, reward, done, info = env.step(action)
+                observationF, reward, done, info = self.env.step(action)
                 
                 cumul_reward += reward
                 nb_actions+=1
@@ -279,35 +306,40 @@ class AgentExploration:
                 
                 #self.memory.push(observationN,action,observationF,reward,done)
                 observationN=observationF
+                
                 if self.memory.__len__ () > self.batch_size:
-                    self.train(self.batch_size,optim,self.memory)
+                    self.train(self.batch_size,self.optim,self.memory)
+                
+                # exploration alpha greedy avec decay
                 self.update_epsilon()
+               
+
                 if done:
                     plot_durations(episode_durations)
                     print("Episode finished after {} timesteps".format(t + 1))
                     episode_durations.append(t + 1)
                     break
-
+            
         plt.scatter(list(list_reward.keys()),list(list_reward.values()))
         plt.show()
 
     
     def train(self,batch_size, optim, memory ):
+        self.compteur_train +=1 
         # Juste avec un seul model 
         resultats = self.memory.sample()
         # On calcule les Q valeurs estimé par le premier réseau de neurones
         
         #target q values : 
-        #TODO
-        target_q_values = self.model(resultats[3])
-        
+        target_q_values = self.target_network(resultats[3])
+
         #MAX TARGET Q VALUE 
         max_target_q_values = target_q_values.max(dim=1, keepdim=True)[0]
 
         targets = resultats[2] + self.gamma * max_target_q_values * (1 - resultats[4])
 
 
-        q_values = self.model(resultats[0])
+        q_values = self.online_network(resultats[0])
         
         action_q_values = torch.gather(input=q_values, dim=1, index=resultats[1])
 
@@ -317,6 +349,14 @@ class AgentExploration:
         optim.zero_grad()
         loss.backward()
         optim.step()
+
+        # Updating target Network params
+        if TARGET_UPDATE_EACH_STEP:
+            self.update_target_network_weights_each_step()
+        else:
+            if self.compteur_train %TARGET_UPDATE_FREQ == 0:
+                self.target_network.load_state_dict(self.online_network.state_dict())
+                
 
 ae = AgentExploration(0.5)
 ae.run()
