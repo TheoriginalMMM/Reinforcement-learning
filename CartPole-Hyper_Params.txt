@@ -1,0 +1,12 @@
+np episodes train : 500 
+start train : 1000 
+lr : 1e-05 
+gamma : 0.99 
+epsi start  : 0.99 
+epsi end  : 0.025 
+epsi decay : 0.999 
+batch_size : 512 
+buffer_size : 20000 
+target update each step : False 
+alph update  : 0.01 
+target update freq : 20 
