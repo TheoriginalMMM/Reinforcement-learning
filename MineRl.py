@@ -2,7 +2,6 @@
 import matplotlib 
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
-from gym.wrappers.frame_stack import FrameStack
 
 import gym
 from gym.spaces import Box
@@ -29,7 +28,7 @@ import matplotlib.pyplot as plt
 TRAIN = True
 TEST = True
 SAVE_MODEL_PARAMS = True
-LOAD_MODEL_PARAMS = True
+LOAD_MODEL_PARAMS = False
 
 MODEL_PARAMS_PATH = "CartPole.data"
 HYPER_PARAMS_PATH = "Hyper_Params.txt"
@@ -82,6 +81,8 @@ HPARAMS = {
 #     for i in HPARAMS.keys():
 # 	    fichier.write(f"{i} : {HPARAMS[i]} \n")
 
+# 
+SIMPLE_KEYBOARD_ACTION ={'Mineline-v0': ['left', 'right', 'attack']}
 
 def plot_evolution(episode_durations,phase):
     plt.figure(2)
@@ -198,43 +199,76 @@ class ResizeObservation(gym.ObservationWrapper):
         )
         observation = transforms(observation).squeeze(0)
         return observation
-        
+
+# Function pour associé les wrapper a notre environement
+env_name ='Mineline-v0'
+def make_env(name):
+    env = gym.make(name)
+    env = GrayScaleObservation(env)
+    env = ResizeObservation(env, shape=84)
+    return env
+
+
+# Fuction pour l'encodage des actions : 
+
+def encode_actions(env_name):
+    resultats = {}
+    cmp = 0 
+    for key in SIMPLE_KEYBOARD_ACTION[env_name]:
+        print(key)
+        resultats[cmp] = key
+        resultats[key] = cmp
+        cmp+=1
+    
+    print(f" encodage des actions finals : {resultats} ")
+    return resultats
+
+
+
+
 # Testons nos wrapper de pré traitement
-memory = ReplayBuffer(20,2,0)
+# memory = ReplayBuffer(20,2,0)
 
-env = gym.make('Mineline-v0')
-env = GrayScaleObservation(env)
-env = ResizeObservation(env, shape=84)
-#env = FrameStack(env,4)
-print("SA PASSE !")
+# env = gym.make('Mineline-v0')
+# env = GrayScaleObservation(env)
+# env = ResizeObservation(env, shape=84)
+# # env = ActionWrapper(env)
+
+# #env = FrameStack(env,4)
+# print("SA PASSE !")
 
 
-obs_i = env.reset()
-print(obs_i)
+# obs_i = env.reset()
+# print(obs_i)
 
-for i in range(4):
-    # Initialitation of the action
-    print(env.action_space)
-    action = env.action_space.noop()
-    # Hwo to choos a action 
-    #action['right'] = 0
-    #action['left'] = 1
-    # Hwo to take a random action 
-    action = env.action_space.sample()
-    obs, reward, done, _ = env.step(action)
-    action = list(action.values())
-    memory.add(obs_i,action,reward,obs,done)
-    obs_i = obs
-    print(env.observation_space)
-    print("NEW FRAME")
-    print("Avec PRE TRAITEMENT ")
-    print(type(obs))
-    print(obs.shape)
-    if done:
-        break
+# for i in range(4):
+#     # Initialitation of the action
+#     print(env.action_space)
+#     action = env.action_space.noop()
+#     # Hwo to choos a action 
+#     #action['right'] = 0
+#     #action['left'] = 1
+#     # Hwo to take a random action 
+#     action = env.action_space.sample()
+#     obs, reward, done, _ = env.step(action)
+#     action = list(action.values())
+#     memory.add(obs_i,action,reward,obs,done)
+#     obs_i = obs
+#     print(env.observation_space)
+#     print("NEW FRAME")
+#     print("Avec PRE TRAITEMENT ")
+#     print(type(obs))
+#     print(obs.shape)
+#     if done:
+#         break
    
-batch = memory.sample()
-print(batch[0])
+# batch = memory.sample()
+# print(batch[0])
+
+
+
+        
+
 ######################################################################################
 ######################################################################################
 # Résseau de neurones convolutifs 
@@ -250,6 +284,7 @@ The Q-Network has as input a state s and outputs the state-action values q(s,a_1
 """
 If the observations are images we use CNNs.
 """
+
 class QNetworkCNN(nn.Module):
     def __init__(self, action_dim):
         super(QNetworkCNN, self).__init__()
@@ -257,7 +292,7 @@ class QNetworkCNN(nn.Module):
         self.conv_1 = nn.Conv2d(3, 32, kernel_size=8, stride=4)
         self.conv_2 = nn.Conv2d(32, 64, kernel_size=4, stride=3)
         self.conv_3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self.fc_1 = nn.Linear(8960, 512)
+        self.fc_1 = nn.Linear(1024, 512)
         self.fc_2 = nn.Linear(512, action_dim)
 
     def forward(self, inp):
@@ -274,5 +309,202 @@ class QNetworkCNN(nn.Module):
 
 
 #########################################################################
+class DQNAgent:
+    
+    def __init__(self,env_name,exploration= True ,gamma=GAMMA,epsilon_start= EPSILON_START,epsilon_decay = EPSILON_DECAY,replay_memory_size=BUFFER_SIZE,batch_size=BATCH_SIZE):
+        self.gamma = gamma
+        self.epsilon = epsilon_start
+        self.epsilon_decay = epsilon_decay
+        self.env= make_env(env_name)
+        self.action_codes = encode_actions(env_name)
+        self.exploration = exploration
+        self.batch_size = batch_size
+        self.memory=ReplayBuffer(replay_memory_size,self.batch_size,0)
+        self.compteur_train= 0
+
+        self.online_network = QNetworkCNN(len(SIMPLE_KEYBOARD_ACTION[env_name]))
+        self.target_network = QNetworkCNN(len(SIMPLE_KEYBOARD_ACTION[env_name]))
+        self.optim = torch.optim.Adam(self.online_network.parameters(), lr=LEARNING_RATE)
+        
+        if LOAD_MODEL_PARAMS :
+            self.online_network.load_state_dict(torch.load(MODEL_PARAMS_PATH))
+        
+        # Initialisationa avec les même paramtres
+        self.target_network.load_state_dict(self.online_network.state_dict())
+        # seting seed to 0
+        self.env.seed(0)
+
+    def get_code_from_env_action(self, action):
+        for key, value in action.items():
+            if value==1:
+                return self.action_codes[key]
+
+    def choose_action(self,state):
+        state = torch.Tensor(state).to(device)
+        with torch.no_grad():
+            values = self.online_network(state)
+        # etape obligatoir d'initialisation 
+        state = state.squeeze(0)
+        state = state.squeez(0)
+        print(f"state shape {state.shape} ")
+
+        action = self.env.action_space.noop()
+        
+        # select a random action wih probability eps
+        if self.exploration :
+                if random.random() <= self.epsilon:
+                    #print("RANDOM ACTION")
+                    action = self.env.action_space.sample()
+                else:
+                    action[self.action_codes[np.argmax(values.cpu().numpy())]]=1
+        else:
+            action[self.action_codes[np.argmax(values.cpu().numpy())]]=1
+
+        return action
+
+    def update_epsilon(self):
+        self.epsilon=self.epsilon*self.epsilon_decay
+        self.epsilon = max(self.epsilon, EPSILON_END)
+        #print(f"Updating Epsilon after {self.compteur_train} New epsilon : {self.epsilon}")
+
+    def update_target_network_weights_each_step(self,):
+        print("updating target netowrk paramaters ")
+        Online_PARAMS = self.online_network.state_dict()
+        Target_PARAMS = self.target_network.state_dict()
+
+        for i in Online_PARAMS:
+            Target_PARAMS[i]=(1-ALPHA)*Target_PARAMS[i]+ALPHA*Online_PARAMS[i]
+
+        self.target_network.load_state_dict(Target_PARAMS)
+    def run(self):
+        if TRAIN:
+            observationN = self.env.reset()
+            episode_durations = []
+            list_reward = {}
+            for i_episode in range(NB_EPISODES_TRAIN):
+                
+                observationN = self.env.reset()
+                cumul_reward = 0
+                nb_actions = 0
+                done = False
+                #for t in range(MAX_ACTIONS_PER_EPISODES):
+                while not done:
+                    # if RENDRING_ENV : self.env.render()      
+                    # Choix de l'action
+                    action = self.choose_action(observationN)
+                    action_code = self.get_code_from_env_action(action)
+                    observationF, reward, done, info = self.env.step(action)
+                    
+                    cumul_reward += reward
+                    nb_actions+=1
+                    self.memory.add(observationN,action_code,reward,observationF,done)
+
+                    observationN=observationF
+                    
+                    if self.memory.__len__ () > BATCH_SIZE:
+                        self.learn(self.optim,self.memory)
+                    
+                    
+                    # exploration alpha greedy avec decay
+                    if self.exploration :
+                        self.update_epsilon()
+
+                    if done:
+                        list_reward[i_episode] = cumul_reward
+                        plot_evolution(episode_durations,'Train')
+                        #print("Episode finished after {} timesteps".format(nb_actions))
+                        episode_durations.append(nb_actions)
+                        #print("CUMUL REWARDS FOR EPISODE ",i_episode,"is :",cumul_reward)
+                        break
+            
+            if SAVE_MODEL_PARAMS:
+                torch.save(self.online_network.state_dict(), MODEL_PARAMS_PATH)
+
+
+        if TEST:
+            observationN = self.env.reset()
+            episode_durations = []
+            list_reward = {}
+            # Pour ne plus explorer
+
+            self.exploration = False
+            for i_episode in range(NB_EPISODES_TEST):
+                observationN = self.env.reset()
+                cumul_reward = 0
+                nb_actions = 0
+                done = False
+                #for t in range(MAX_ACTIONS_PER_EPISODES):
+                while not done:
+                    # if RENDRING_ENV : self.env.render()      
+                    # Choix de l'action
+                    action = self.choose_action(observationN)
+                    observationF, reward, done, info = self.env.step(action)
+
+                    cumul_reward += reward
+                    nb_actions+=1                    
+                    #self.memory.push(observationN,action,observationF,reward,done)
+                    observationN=observationF
+                    
+                    # exploration alpha greedy avec decay
+                    if self.exploration :
+                        self.update_epsilon()
+                    if done:
+                        list_reward[i_episode] = cumul_reward
+                        episode_durations.append(nb_actions)
+                        plot_evolution(episode_durations,"Test")
+
+                        #print("Episode finished after {} timesteps".format(nb_actions))
+                        #print("CUMUL REWARDS FOR EPISODE ",i_episode,"is :",cumul_reward)
+                        break
+            
+            moy = np.mean(list(list_reward.values()))
+            ecart_type= np.std(list(list_reward.values()))
+            print(f" Moyenne +/- Ecart type  des récompenses sur les {NB_EPISODES_TEST} episodes")
+            print(f" Moyennes : {moy}")
+            print(f" Ecart type  : {ecart_type}")
+
+    
+    def learn(self, optim, memory ):
+        self.compteur_train +=1 
+        # Juste avec un seul model 
+        resultats = self.memory.sample()
+        future_states  = resultats[3]
+        future_states = future_states.squeeze(0)
+        future_states = future_states.squeeze(1)
+        print(f" future state shape {future_states.shape}")
+        #target q values : 
+        target_q_values = self.target_network(resultats[3])
+
+        #MAX TARGET Q VALUE 
+        max_target_q_values = target_q_values.max(dim=1, keepdim=True)[0]
+
+        targets = resultats[2] + self.gamma * max_target_q_values * (1 - resultats[4])
+    
+
+        states = resultats[0].squeeze(0)
+        states = resultats[0].squeeze(1)
+        print(f" future state shape {states.shape}")
+        
+        q_values = self.online_network(states)
+        
+        action_q_values = torch.gather(input=q_values, dim=1, index=resultats[1])
+
+        loss = nn.MSELoss()
+        loss=loss(action_q_values ,targets)
+        
+        optim.zero_grad()
+        loss.backward()
+        optim.step()
+
+        # Updating target Network params
+        if TARGET_PARAMS_UPDATE_EACH_STEP:
+            self.update_target_network_weights_each_step()
+        elif self.compteur_train % TARGET_UPDATE_FREQ == 0 :
+                print(f"COMPTEUR {self.compteur_train} UPDATE PARAMS EPSILON {self.epsilon} ")
+                self.target_network.load_state_dict(self.online_network.state_dict())
+
+
+ae = DQNAgent(env_name)
+ae.run()
 
 
