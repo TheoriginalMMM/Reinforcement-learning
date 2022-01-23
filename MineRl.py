@@ -34,6 +34,7 @@ MODEL_PARAMS_PATH = "CartPole.data"
 HYPER_PARAMS_PATH = "Hyper_Params.txt"
 #400
 NB_EPISODES_TRAIN = 500
+MAX_ACTIONS_PER_EPISODES = 300
 NB_EPISODES_TEST = 200
 START_TRAIN = 1000
 
@@ -47,9 +48,9 @@ GAMMA = 0.99
 EPSILON_START = 0.99
 #0.01
 EPSILON_END = 0.025
-EPSILON_DECAY = 0.999
+EPSILON_DECAY = 0.9999
 
-BATCH_SIZE = 512
+BATCH_SIZE = 500
 BUFFER_SIZE = 20000
 
 TARGET_PARAMS_UPDATE_EACH_STEP = False
@@ -128,7 +129,7 @@ class ReplayBuffer:
         experiences = random.sample(self.memory, k=self.batch_size)
 
         states = [e.state for e in experiences if e is not None]
-        actions = torch.as_tensor(np.asarray([e.action for e in experiences if e is not None]), dtype=torch.int64).unsqueeze(-1)
+        actions = torch.as_tensor(np.asarray([e.action for e in experiences if e is not None]).astype(int), dtype=torch.int64).unsqueeze(-1)
         rewards = torch.as_tensor(np.asarray([e.reward for e in experiences if e is not None]),dtype=torch.float32).unsqueeze(-1)
         next_states = [e.next_state for e in experiences if e is not None]
         dones = torch.as_tensor(np.asarray([e.done for e in experiences if e is not None]),dtype=torch.float32).unsqueeze(-1)
@@ -289,14 +290,13 @@ class QNetworkCNN(nn.Module):
     def __init__(self, action_dim):
         super(QNetworkCNN, self).__init__()
 
-        self.conv_1 = nn.Conv2d(3, 32, kernel_size=8, stride=4)
+        self.conv_1 = nn.Conv2d(1, 32, kernel_size=8, stride=4)
         self.conv_2 = nn.Conv2d(32, 64, kernel_size=4, stride=3)
         self.conv_3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
         self.fc_1 = nn.Linear(1024, 512)
         self.fc_2 = nn.Linear(512, action_dim)
 
     def forward(self, inp):
-        inp = inp.view((1, 3, 210, 160))
         x1 = F.relu(self.conv_1(inp))
         x1 = F.relu(self.conv_2(x1))
         x1 = F.relu(self.conv_3(x1))
@@ -322,6 +322,8 @@ class DQNAgent:
         self.memory=ReplayBuffer(replay_memory_size,self.batch_size,0)
         self.compteur_train= 0
 
+        self.nb_possible_action = len(SIMPLE_KEYBOARD_ACTION[env_name])
+
         self.online_network = QNetworkCNN(len(SIMPLE_KEYBOARD_ACTION[env_name]))
         self.target_network = QNetworkCNN(len(SIMPLE_KEYBOARD_ACTION[env_name]))
         self.optim = torch.optim.Adam(self.online_network.parameters(), lr=LEARNING_RATE)
@@ -336,17 +338,20 @@ class DQNAgent:
 
     def get_code_from_env_action(self, action):
         for key, value in action.items():
+
             if value==1:
+                #print(f"key {key } fasse to {self.action_codes[key]}")
                 return self.action_codes[key]
 
     def choose_action(self,state):
+        # etape obligatoir d'initialisation 
+        state = state.unsqueeze(0)
+        state = state.unsqueeze(0)
+        #print(f"state shape {state.shape} ")
         state = torch.Tensor(state).to(device)
         with torch.no_grad():
             values = self.online_network(state)
-        # etape obligatoir d'initialisation 
-        state = state.squeeze(0)
-        state = state.squeez(0)
-        print(f"state shape {state.shape} ")
+
 
         action = self.env.action_space.noop()
         
@@ -354,10 +359,14 @@ class DQNAgent:
         if self.exploration :
                 if random.random() <= self.epsilon:
                     #print("RANDOM ACTION")
-                    action = self.env.action_space.sample()
+                    action[self.action_codes[random.randint(0,self.nb_possible_action-1)]]=1
+                    #print("action sampled automaticly ", action)
+                    #print("its code is ",self.get_code_from_env_action(action))
                 else:
+                    #print(f'dqn choose : {self.action_codes[np.argmax(values.cpu().numpy())]} ')
                     action[self.action_codes[np.argmax(values.cpu().numpy())]]=1
         else:
+            #print(f'dqn choose : {self.action_codes[np.argmax(values.cpu().numpy())]} ')
             action[self.action_codes[np.argmax(values.cpu().numpy())]]=1
 
         return action
@@ -381,18 +390,20 @@ class DQNAgent:
             observationN = self.env.reset()
             episode_durations = []
             list_reward = {}
+            rewards = []
             for i_episode in range(NB_EPISODES_TRAIN):
                 
                 observationN = self.env.reset()
                 cumul_reward = 0
                 nb_actions = 0
                 done = False
-                #for t in range(MAX_ACTIONS_PER_EPISODES):
-                while not done:
+                for t in range(MAX_ACTIONS_PER_EPISODES):
+                #while not done:
                     # if RENDRING_ENV : self.env.render()      
                     # Choix de l'action
                     action = self.choose_action(observationN)
                     action_code = self.get_code_from_env_action(action)
+                    #print(f" action_code : {action_code}") 
                     observationF, reward, done, info = self.env.step(action)
                     
                     cumul_reward += reward
@@ -410,13 +421,13 @@ class DQNAgent:
                         self.update_epsilon()
 
                     if done:
-                        list_reward[i_episode] = cumul_reward
-                        plot_evolution(episode_durations,'Train')
-                        #print("Episode finished after {} timesteps".format(nb_actions))
-                        episode_durations.append(nb_actions)
-                        #print("CUMUL REWARDS FOR EPISODE ",i_episode,"is :",cumul_reward)
                         break
-            
+                rewards.append(cumul_reward)
+                list_reward[i_episode] = cumul_reward
+                plot_evolution(rewards,'Train')
+                print("Episode finished after {} timesteps cumul rewards {}".format(nb_actions,cumul_reward))
+                #episode_durations.append(nb_actions)
+                #print("CUMUL REWARDS FOR EPISODE ",i_episode,"is :",cumul_reward)           
             if SAVE_MODEL_PARAMS:
                 torch.save(self.online_network.state_dict(), MODEL_PARAMS_PATH)
 
@@ -468,22 +479,22 @@ class DQNAgent:
         self.compteur_train +=1 
         # Juste avec un seul model 
         resultats = self.memory.sample()
-        future_states  = resultats[3]
-        future_states = future_states.squeeze(0)
-        future_states = future_states.squeeze(1)
-        print(f" future state shape {future_states.shape}")
+        future_states  = torch.cat([x.unsqueeze(0) for x in resultats[3]], 0)
+        future_states = future_states.unsqueeze(1)
+        #print(f" future state shape {future_states.shape}")
+
         #target q values : 
-        target_q_values = self.target_network(resultats[3])
+        target_q_values = self.target_network(future_states)
 
         #MAX TARGET Q VALUE 
         max_target_q_values = target_q_values.max(dim=1, keepdim=True)[0]
 
         targets = resultats[2] + self.gamma * max_target_q_values * (1 - resultats[4])
     
-
-        states = resultats[0].squeeze(0)
-        states = resultats[0].squeeze(1)
-        print(f" future state shape {states.shape}")
+        #print(resultats[0][0].shape)
+        states  = torch.cat([x.unsqueeze(0) for x in resultats[0]], 0)
+        states = states.unsqueeze(1)
+        #print(f" state shape {states.shape}")
         
         q_values = self.online_network(states)
         
