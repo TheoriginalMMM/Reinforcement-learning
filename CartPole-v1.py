@@ -3,6 +3,10 @@ from distutils.fancy_getopt import FancyGetopt
 from pickle import TRUE
 from tokenize import Triple
 import gym
+from gym.wrappers import Monitor
+from gym.wrappers.monitoring import video_recorder
+
+
 import matplotlib 
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
@@ -20,20 +24,20 @@ import matplotlib.pyplot as plt
 ##################################################################################
 #PARAMETERS ET CONFIGURATIONS
 
-TRAIN = True
+TRAIN = False
 TEST = True
-SAVE_MODEL_PARAMS = True
+SAVE_MODEL_PARAMS = False
 LOAD_MODEL_PARAMS = True
 
 MODEL_PARAMS_PATH = "CartPole.data"
 HYPER_PARAMS_PATH = "Hyper_Params.txt"
 #400
 NB_EPISODES_TRAIN = 500
-NB_EPISODES_TEST = 200
+NB_EPISODES_TEST = 1
 START_TRAIN = 1000
 
-RECORD_PERFS = False
-RENDRING_ENV = False
+RECORD_PERFS = True
+RENDRING_ENV = True
 
 LEARNING_RATE = 0.00001
 # 0.9
@@ -326,6 +330,9 @@ class DQNAgent:
             episode_durations = []
             list_reward = {}
             # Pour ne plus explorer
+            if RECORD_PERFS:
+                video_path='demo.mp4'
+                video_recorder_object =video_recorder.VideoRecorder(self.env, path=video_path)
 
             self.exploration = False
             for i_episode in range(NB_EPISODES_TEST):
@@ -335,7 +342,10 @@ class DQNAgent:
                 done = False
                 #for t in range(MAX_ACTIONS_PER_EPISODES):
                 while not done:
-                    # if RENDRING_ENV : self.env.render()      
+                    if RENDRING_ENV : 
+                        self.env.render()
+                    if RECORD_PERFS:
+                        video_recorder_object.capture_frame()      
                     # Choix de l'action
                     action = self.choose_action(observationN)
                     observationF, reward, done, info = self.env.step(action)
@@ -357,6 +367,9 @@ class DQNAgent:
                         #print("CUMUL REWARDS FOR EPISODE ",i_episode,"is :",cumul_reward)
                         break
             
+            video_recorder_object.close()
+            video_recorder_object.enabled = False
+            self.env.close()
             moy = np.mean(list(list_reward.values()))
             ecart_type= np.std(list(list_reward.values()))
             print(f" Moyenne +/- Ecart type  des récompenses sur les {NB_EPISODES_TEST} episodes")
@@ -402,5 +415,7 @@ class DQNAgent:
 env = gym.make('CartPole-v1')
 ae = DQNAgent(env)
 ae.run()
+video_recorder.close()
+
 
 

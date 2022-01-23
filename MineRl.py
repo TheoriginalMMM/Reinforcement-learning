@@ -6,7 +6,7 @@ from collections import namedtuple, deque
 
 import gym
 from gym.spaces import Box
-from gym.wrappers.frame_stack import FrameStack
+from frame_stacking import FrameStack
 from gym.wrappers import Monitor
 
 
@@ -20,6 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 from torchvision import transforms as T
+from gym.wrappers.monitoring import video_recorder
 
 
 matplotlib.use('TkAgg')
@@ -39,11 +40,11 @@ HYPER_PARAMS_PATH = "MineRL-Hyper_Params.txt"
 #400
 NB_EPISODES_TRAIN = 500
 MAX_ACTIONS_PER_EPISODES = 300
-NB_EPISODES_TEST = 5
+NB_EPISODES_TEST = 1
 START_TRAIN = 1000
 
 RECORD_PERFS = True
-RENDRING_ENV = False
+RENDRING_ENV = True
 FRAME_STACKING = False
 
 LEARNING_RATE = 0.00001
@@ -217,7 +218,8 @@ def make_env(name):
     if FRAME_STACKING:
         env = FrameStack(env, 4)
     if RECORD_PERFS:
-        env = Monitor(env, directory="Save")
+        #env = Monitor(env, directory="demoMineRl-monitor.mp4",force=True)
+        print("ok")
 
     return env
 
@@ -449,6 +451,9 @@ class DQNAgent:
             episode_durations = []
             list_reward = {}
             # Pour ne plus explorer
+            if RECORD_PERFS:
+                video_path='demo-MineRl.mp4'
+                video_recorder_object =video_recorder.VideoRecorder(self.env, path=video_path)
 
             self.exploration = False
             for i_episode in range(NB_EPISODES_TEST):
@@ -458,7 +463,10 @@ class DQNAgent:
                 done = False
                 #for t in range(MAX_ACTIONS_PER_EPISODES):
                 while not done:
-                    # if RENDRING_ENV : self.env.render()      
+                    #if RENDRING_ENV : self.env.render()  
+                    if RECORD_PERFS:
+                        video_recorder_object.capture_frame() 
+
                     # Choix de l'action
                     action = self.choose_action(observationN)
                     observationF, reward, done, info = self.env.step(action)
@@ -479,6 +487,10 @@ class DQNAgent:
                         #print("Episode finished after {} timesteps".format(nb_actions))
                         #print("CUMUL REWARDS FOR EPISODE ",i_episode,"is :",cumul_reward)
                         break
+            
+            video_recorder_object.close()
+            video_recorder_object.enabled = False
+            self.env.close() 
             
             moy = np.mean(list(list_reward.values()))
             ecart_type= np.std(list(list_reward.values()))
