@@ -1,3 +1,16 @@
+# Content
+
+This project contains:
+-   Two source code files (CartPole.py and MineRl.py) that contain the implementation of two DQN agents that act in gym environments.
+-   Two .mp4 files containing the visual performances of our agents.
+-   Three .data files that contain the parameters of the pre-trained neural networks used by the two agents.
+-   Three .txt files which contain the hyper parameters used for each training cf the report to understand.
+-   6 .png files that illustrate the evolution of each agent during the training and test phase.cf report.
+-   An environment directory which contains files related to the environment and an install.md file to install it (its installation is mandatory to use the second agent on MineRL).
+-   A requirement.txt file which contains all the dependencies has installed, you will find in the following of this readme the procedure to install them.
+-   Finalement un rapport.pdf détailé qui montrent le traivail réalisé et les résultats.
+
+
 # First step : setup the environnement
 Firstly, you need to creat a python virtual environnement using this command for exemple:
 ```
