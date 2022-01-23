@@ -28,6 +28,7 @@ TRAIN = False
 TEST = True
 SAVE_MODEL_PARAMS = False
 LOAD_MODEL_PARAMS = True
+SAVE_HYPER_PARAMS = False
 
 MODEL_PARAMS_PATH = "CartPole.data"
 HYPER_PARAMS_PATH = "Hyper_Params.txt"
@@ -36,7 +37,7 @@ NB_EPISODES_TRAIN = 500
 NB_EPISODES_TEST = 1
 START_TRAIN = 1000
 
-RECORD_PERFS = True
+RECORD_PERFS = False
 RENDRING_ENV = True
 
 LEARNING_RATE = 0.00001
@@ -75,10 +76,10 @@ HPARAMS = {
     "target update freq":TARGET_UPDATE_FREQ
 }
 
-
-with open(HYPER_PARAMS_PATH, "w") as fichier:
-    for i in HPARAMS.keys():
-	    fichier.write(f"{i} : {HPARAMS[i]} \n")
+if SAVE_HYPER_PARAMS : 
+    with open(HYPER_PARAMS_PATH, "w") as fichier:
+        for i in HPARAMS.keys():
+            fichier.write(f"{i} : {HPARAMS[i]} \n")
 
 ##################################################################################
 # Initiaiton avec GYM et CartPole-v1
@@ -120,7 +121,7 @@ def plot_evolution(episode_durations,phase):
     durations_t = torch.tensor(episode_durations, dtype=torch.float)
     plt.title(phase+'...')
     plt.xlabel('Episode')
-    plt.ylabel('Duration')
+    plt.ylabel('Récompenses')
     plt.plot(durations_t.numpy())
     if len(durations_t) >= 100:
         means = durations_t.unfold(0, 10, 1).mean(1).view(-1)
@@ -366,15 +367,16 @@ class DQNAgent:
                         #print("Episode finished after {} timesteps".format(nb_actions))
                         #print("CUMUL REWARDS FOR EPISODE ",i_episode,"is :",cumul_reward)
                         break
+            if RECORD_PERFS:
+                video_recorder_object.close()
+                video_recorder_object.enabled = False
             
-            video_recorder_object.close()
-            video_recorder_object.enabled = False
-            self.env.close()
             moy = np.mean(list(list_reward.values()))
             ecart_type= np.std(list(list_reward.values()))
             print(f" Moyenne +/- Ecart type  des récompenses sur les {NB_EPISODES_TEST} episodes")
             print(f" Moyennes : {moy}")
             print(f" Ecart type  : {ecart_type}")
+            self.env.close()
 
     
     def learn(self, optim, memory ):
@@ -415,7 +417,6 @@ class DQNAgent:
 env = gym.make('CartPole-v1')
 ae = DQNAgent(env)
 ae.run()
-video_recorder.close()
 
 
 

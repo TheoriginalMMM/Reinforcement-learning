@@ -30,34 +30,51 @@ import matplotlib.pyplot as plt
 ##################################################################################
 #PARAMETERS ET CONFIGURATIONS
 
-TRAIN = True
+# Quelle phase  vous voullez lancez 
+TRAIN = False
 TEST = True
-SAVE_MODEL_PARAMS = True
-LOAD_MODEL_PARAMS = False
 
-MODEL_PARAMS_PATH = "MineRl-FrameStacking.data"
-HYPER_PARAMS_PATH = "MineRL-Hyper_Params-FrameStacking.txt"
-#400
+# Options pour charger et sauvgarder les paramtres
+SAVE_MODEL_PARAMS = False
+LOAD_MODEL_PARAMS = True
+SAVE_HYPER_PARAMS = False
+
+# Option pour choisir d'utilise Frame Stacking ou non 
+FRAME_STACKING = True
+
+if FRAME_STACKING:
+    MODEL_PARAMS_PATH = "MineRl-FrameStacking.data"
+    HYPER_PARAMS_PATH = "MineRL-Hyper_Params-FrameStacking.txt"
+else:
+    MODEL_PARAMS_PATH = "MineRl.data"
+    HYPER_PARAMS_PATH = "MineRL-Hyper-Params.txt"
+
+
+# Nombre d'episodes de tests d'entrainement time stamp par action 
 NB_EPISODES_TRAIN = 200
 MAX_ACTIONS_PER_EPISODES = 300
 NB_EPISODES_TEST = 1
 START_TRAIN = 1000
 
-RECORD_PERFS = True
-RENDRING_ENV = True
-FRAME_STACKING = True
+# Options pour choisir si il faut sauvgarder les perfermonces ou faire du rendring de l'environement
+RECORD_PERFS = False
+RENDRING_ENV = False
 
+# Learning rate 
 LEARNING_RATE = 0.0001
-# 0.9
+
+# Gamma de la fonction de belman
 GAMMA = 0.99
 
+# Epsilon start (paramtre de l'exploration)
 EPSILON_START = 0.99
-#0.01
 EPSILON_END = 0.025
 EPSILON_DECAY = 0.9999
 
+# Paramtres de la mémoire (batch, buffer)
 BATCH_SIZE = 250
 BUFFER_SIZE = 20000
+
 
 TARGET_PARAMS_UPDATE_EACH_STEP = False
 ALPHA = 0.01
@@ -83,12 +100,14 @@ HPARAMS = {
     "target update freq":TARGET_UPDATE_FREQ
 }
 
-# Sauvgarder la liste des paramtres 
-# with open(HYPER_PARAMS_PATH, "w") as fichier:
-#     for i in HPARAMS.keys():
-# 	    fichier.write(f"{i} : {HPARAMS[i]} \n")
+#Sauvgarder la liste des paramtres 
+if SAVE_HYPER_PARAMS:
+    with open(HYPER_PARAMS_PATH, "w") as fichier:
+        for i in HPARAMS.keys():
+            fichier.write(f"{i} : {HPARAMS[i]} \n")
 
-# 
+
+# DICT TO SAVE ALL ACTION OF EACH ENV
 SIMPLE_KEYBOARD_ACTION ={'Mineline-v0': ['left', 'right', 'attack']}
 
 def plot_evolution(episode_durations,phase):
@@ -97,18 +116,17 @@ def plot_evolution(episode_durations,phase):
     durations_t = torch.tensor(episode_durations, dtype=torch.float)
     plt.title(phase+'...')
     plt.xlabel('Episode')
-    plt.ylabel('Duration')
+    plt.ylabel('Récompenses ')
     plt.plot(durations_t.numpy())
     if len(durations_t) >= 100:
         means = durations_t.unfold(0, 10, 1).mean(1).view(-1)
         means = torch.cat((torch.zeros(9), means))
         plt.plot(means.numpy())
 
-
-    
     plt.pause(0.001)  # pause a bit so that plots are updated
     if not RECORD_PERFS:
         plt.savefig(phase+".png")
+
 
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
@@ -217,15 +235,10 @@ def make_env(name):
     
     if FRAME_STACKING:
         env = FrameStack(env, 4)
-    if RECORD_PERFS:
-        #env = Monitor(env, directory="demoMineRl-monitor.mp4",force=True)
-        print("ok")
-
     return env
 
-
-# Fuction pour l'encodage des actions : 
-
+# Fuction pour l'encodage des actions :
+# Retourne un dictionaire a utilisé par l'agent 
 def encode_actions(env_name):
     resultats = {}
     cmp = 0 
@@ -237,10 +250,6 @@ def encode_actions(env_name):
     
     #print(f" encodage des actions finals : {resultats} ")
     return resultats
-
-
-
-
 # Testons nos wrapper de pré traitement
 # memory = ReplayBuffer(20,2,0)
 
@@ -307,7 +316,7 @@ class QNetworkCNN(nn.Module):
             # On met 4 chanel en entré
             self.conv_1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
         else:
-            self.conv_1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
+            self.conv_1 = nn.Conv2d(1, 32, kernel_size=8, stride=4)
             
         self.conv_2 = nn.Conv2d(32, 64, kernel_size=4, stride=3)
         self.conv_3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
@@ -362,7 +371,8 @@ class DQNAgent:
                 return self.action_codes[key]
 
     def choose_action(self,state):
-        # etape obligatoir d'initialisation 
+        # etape obligatoir d'initialisation de l'etat 
+        # Ca permet d'avoir un tenseur avec la bonne dimension 
         if not FRAME_STACKING:
             # etape obligatoir d'initialisation 
             state = state.unsqueeze(0)
@@ -460,6 +470,7 @@ class DQNAgent:
             observationN = self.env.reset()
             episode_durations = []
             list_reward = {}
+            reawards = []
             # Pour ne plus explorer
             if RECORD_PERFS:
                 video_path='demo-MineRl.mp4'
@@ -490,17 +501,15 @@ class DQNAgent:
                     if self.exploration :
                         self.update_epsilon()
                     if done:
+                        reawards.append(cumul_reward)
                         list_reward[i_episode] = cumul_reward
                         episode_durations.append(nb_actions)
-                        plot_evolution(episode_durations,"Test")
+                        plot_evolution(reawards,"Test")
 
-                        #print("Episode finished after {} timesteps".format(nb_actions))
-                        #print("CUMUL REWARDS FOR EPISODE ",i_episode,"is :",cumul_reward)
                         break
-            
-            video_recorder_object.close()
-            video_recorder_object.enabled = False
-            self.env.close() 
+            if RECORD_PERFS:
+                video_recorder_object.close()
+                video_recorder_object.enabled = False
             
             moy = np.mean(list(list_reward.values()))
             ecart_type= np.std(list(list_reward.values()))
@@ -522,14 +531,8 @@ class DQNAgent:
             states = states.unsqueeze(1)
         else:
             future_states  = torch.cat([torch.FloatTensor(x.__array__()).unsqueeze(0) for x in resultats[3]], 0)
-            #future_states = future_states.unsqueeze(1)
-
+            
             states  = torch.cat([torch.FloatTensor(x.__array__()).unsqueeze(0) for x in resultats[0]], 0)
-            #states = states.unsqueeze(1)
-            #print(f" future state shape {future_states.shape}")
-            #print(f" state shape {states.shape}")
-
-        #print(f" future state shape {future_states.shape}")
 
         #target q values : 
         target_q_values = self.target_network(future_states)
@@ -538,11 +541,7 @@ class DQNAgent:
         max_target_q_values = target_q_values.max(dim=1, keepdim=True)[0]
 
         targets = resultats[2] + self.gamma * max_target_q_values * (1 - resultats[4])
-    
-        #print(resultats[0][0].shape)
-        
-        #print(f" state shape {states.shape}")
-        
+
         q_values = self.online_network(states)
         
         action_q_values = torch.gather(input=q_values, dim=1, index=resultats[1])
