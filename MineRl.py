@@ -1,10 +1,14 @@
 
+from typing import Tuple
 import matplotlib 
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 
 import gym
 from gym.spaces import Box
+from gym.wrappers.frame_stack import FrameStack
+from gym.wrappers import Monitor
+
 
 
 
@@ -25,21 +29,22 @@ import matplotlib.pyplot as plt
 ##################################################################################
 #PARAMETERS ET CONFIGURATIONS
 
-TRAIN = True
+TRAIN = False
 TEST = True
-SAVE_MODEL_PARAMS = True
-LOAD_MODEL_PARAMS = False
+SAVE_MODEL_PARAMS = False
+LOAD_MODEL_PARAMS = True
 
-MODEL_PARAMS_PATH = "CartPole.data"
-HYPER_PARAMS_PATH = "Hyper_Params.txt"
+MODEL_PARAMS_PATH = "MineRl.data"
+HYPER_PARAMS_PATH = "MineRL-Hyper_Params.txt"
 #400
 NB_EPISODES_TRAIN = 500
 MAX_ACTIONS_PER_EPISODES = 300
-NB_EPISODES_TEST = 200
+NB_EPISODES_TEST = 5
 START_TRAIN = 1000
 
-RECORD_PERFS = False
+RECORD_PERFS = True
 RENDRING_ENV = False
+FRAME_STACKING = False
 
 LEARNING_RATE = 0.00001
 # 0.9
@@ -101,7 +106,8 @@ def plot_evolution(episode_durations,phase):
 
     
     plt.pause(0.001)  # pause a bit so that plots are updated
-    plt.savefig(phase+".png")
+    if not RECORD_PERFS:
+        plt.savefig(phase+".png")
 
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
@@ -207,6 +213,12 @@ def make_env(name):
     env = gym.make(name)
     env = GrayScaleObservation(env)
     env = ResizeObservation(env, shape=84)
+    
+    if FRAME_STACKING:
+        env = FrameStack(env, 4)
+    if RECORD_PERFS:
+        env = Monitor(env, directory="Save")
+
     return env
 
 
