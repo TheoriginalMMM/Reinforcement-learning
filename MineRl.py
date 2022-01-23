@@ -30,24 +30,24 @@ import matplotlib.pyplot as plt
 ##################################################################################
 #PARAMETERS ET CONFIGURATIONS
 
-TRAIN = False
+TRAIN = True
 TEST = True
-SAVE_MODEL_PARAMS = False
-LOAD_MODEL_PARAMS = True
+SAVE_MODEL_PARAMS = True
+LOAD_MODEL_PARAMS = False
 
-MODEL_PARAMS_PATH = "MineRl.data"
-HYPER_PARAMS_PATH = "MineRL-Hyper_Params.txt"
+MODEL_PARAMS_PATH = "MineRl-FrameStacking.data"
+HYPER_PARAMS_PATH = "MineRL-Hyper_Params-FrameStacking.txt"
 #400
-NB_EPISODES_TRAIN = 500
+NB_EPISODES_TRAIN = 200
 MAX_ACTIONS_PER_EPISODES = 300
 NB_EPISODES_TEST = 1
 START_TRAIN = 1000
 
 RECORD_PERFS = True
 RENDRING_ENV = True
-FRAME_STACKING = False
+FRAME_STACKING = True
 
-LEARNING_RATE = 0.00001
+LEARNING_RATE = 0.0001
 # 0.9
 GAMMA = 0.99
 
@@ -56,14 +56,14 @@ EPSILON_START = 0.99
 EPSILON_END = 0.025
 EPSILON_DECAY = 0.9999
 
-BATCH_SIZE = 500
+BATCH_SIZE = 250
 BUFFER_SIZE = 20000
 
 TARGET_PARAMS_UPDATE_EACH_STEP = False
 ALPHA = 0.01
 
 # 100
-TARGET_UPDATE_FREQ = 20
+TARGET_UPDATE_FREQ = 40
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -230,12 +230,12 @@ def encode_actions(env_name):
     resultats = {}
     cmp = 0 
     for key in SIMPLE_KEYBOARD_ACTION[env_name]:
-        print(key)
+        #print(key)
         resultats[cmp] = key
         resultats[key] = cmp
         cmp+=1
     
-    print(f" encodage des actions finals : {resultats} ")
+    #print(f" encodage des actions finals : {resultats} ")
     return resultats
 
 
@@ -303,8 +303,12 @@ If the observations are images we use CNNs.
 class QNetworkCNN(nn.Module):
     def __init__(self, action_dim):
         super(QNetworkCNN, self).__init__()
-
-        self.conv_1 = nn.Conv2d(1, 32, kernel_size=8, stride=4)
+        if FRAME_STACKING:
+            # On met 4 chanel en entré
+            self.conv_1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
+        else:
+            self.conv_1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
+            
         self.conv_2 = nn.Conv2d(32, 64, kernel_size=4, stride=3)
         self.conv_3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
         self.fc_1 = nn.Linear(1024, 512)
@@ -359,8 +363,14 @@ class DQNAgent:
 
     def choose_action(self,state):
         # etape obligatoir d'initialisation 
-        state = state.unsqueeze(0)
-        state = state.unsqueeze(0)
+        if not FRAME_STACKING:
+            # etape obligatoir d'initialisation 
+            state = state.unsqueeze(0)
+            state = state.unsqueeze(0)
+        else:     
+            state = torch.FloatTensor(state.__array__())
+            state = state.unsqueeze(0)
+        
         #print(f"state shape {state.shape} ")
         state = torch.Tensor(state).to(device)
         with torch.no_grad():
@@ -503,8 +513,22 @@ class DQNAgent:
         self.compteur_train +=1 
         # Juste avec un seul model 
         resultats = self.memory.sample()
-        future_states  = torch.cat([x.unsqueeze(0) for x in resultats[3]], 0)
-        future_states = future_states.unsqueeze(1)
+        # Pretraitement des etats 
+        if not FRAME_STACKING:  
+            future_states  = torch.cat([x.unsqueeze(0) for x in resultats[3]], 0)
+            future_states = future_states.unsqueeze(1)
+
+            states  = torch.cat([x.unsqueeze(0) for x in resultats[0]], 0)
+            states = states.unsqueeze(1)
+        else:
+            future_states  = torch.cat([torch.FloatTensor(x.__array__()).unsqueeze(0) for x in resultats[3]], 0)
+            #future_states = future_states.unsqueeze(1)
+
+            states  = torch.cat([torch.FloatTensor(x.__array__()).unsqueeze(0) for x in resultats[0]], 0)
+            #states = states.unsqueeze(1)
+            #print(f" future state shape {future_states.shape}")
+            #print(f" state shape {states.shape}")
+
         #print(f" future state shape {future_states.shape}")
 
         #target q values : 
@@ -516,8 +540,7 @@ class DQNAgent:
         targets = resultats[2] + self.gamma * max_target_q_values * (1 - resultats[4])
     
         #print(resultats[0][0].shape)
-        states  = torch.cat([x.unsqueeze(0) for x in resultats[0]], 0)
-        states = states.unsqueeze(1)
+        
         #print(f" state shape {states.shape}")
         
         q_values = self.online_network(states)
