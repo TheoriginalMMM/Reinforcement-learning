@@ -10,9 +10,6 @@ from frame_stacking import FrameStack
 from gym.wrappers import Monitor
 
 
-
-
-
 import environment
 
 import torch
@@ -40,7 +37,7 @@ LOAD_MODEL_PARAMS = True
 SAVE_HYPER_PARAMS = False
 
 # Option pour choisir d'utilise Frame Stacking ou non 
-FRAME_STACKING = True
+FRAME_STACKING = False
 
 if FRAME_STACKING:
     MODEL_PARAMS_PATH = "MineRl-FrameStacking.data"
